@@ -1,0 +1,468 @@
+# How IntelliFile works
+
+IntelliFile is two programs on the same Windows computer: a desktop app (Tauri, React) and a search engine (Python, FastAPI). Nothing leaves the machine. This page shows how the two programs connect, then the final architecture: indexing, search, photo search, personalization, Ask, and where the agentic AI is.
+
+## The two programs
+
+```mermaid
+flowchart LR
+  subgraph PC["Your Windows PC (no internet needed)"]
+    UI["Desktop app<br/>Tauri + React"]
+    ENG["Search engine<br/>Python, FastAPI"]
+    DATA[("%LOCALAPPDATA%\\IntelliFile<br/>index, history, settings")]
+    FILES[["Your folders<br/>(read only)"]]
+    UI -- "127.0.0.1<br/>key per launch" --> ENG
+    ENG --> DATA
+    ENG -. reads .-> FILES
+  end
+```
+
+The app starts the engine when it opens and stops it when it closes. If the app crashes, the engine notices and exits too. Every request carries a key created at launch, so no other program on the computer can read the index.
+
+## The final architecture
+
+This is the reference description of the system, checked against the code on 27 September 2026. Every box names something in the code; the principles at the end are the rules each part follows.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                                 INTELLIFILE                                  │
+│                              LOCAL OFFLINE AI                                │
+│                   NO CLOUD, NO NETWORK, READ-ONLY, WINDOWS                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+
+══════════════════════════════════════════════════════════════════════════════
+1. INDEXING PIPELINE
+══════════════════════════════════════════════════════════════════════════════
+
+                          Folders allowed by the user
+                                      │
+                                      ▼
+                 Watch live Windows changes, 30 s debounce,
+                     plus a full scan at every app start
+                                      │
+                                      ▼
+                             CHANGE DETECTION
+                size + modified time, then SHA-256 when needed
+                                      │
+      ┌───────────────────┬───────────┴────────┬──────────────────────┐
+      ▼                   ▼                    ▼                      ▼
+  Unchanged        Renamed, same hash       Deleted            New / changed
+      │                   │                    │                      │
+      ▼                   ▼                    ▼                      ▼
+    SKIP          UPDATE PATH ONLY     REMOVE FROM INDEX      CONTENT PROCESSING
+                                                                      │
+          ┌─────────────────────┬─────────────────┬───────────────────┤
+          ▼                     ▼                 ▼                   ▼
+    Text / Office       Scans / screenshots     Audio          Photos / videos
+          │                     │                 │                   │
+          ▼                     ▼                 ▼                   ▼
+   Text extraction         Windows OCR         Whisper               CLIP
+          │                     │                 │                   │
+          └─────────────────────┼─────────────────┘                   │
+                                ▼                                     ▼
+                  Text passages (224 tokens)                    Image vectors
+                                │                                     │
+                     ┌──────────┴──────────┐                          ▼
+                     ▼                     ▼                  LanceDB image store
+                SQLite FTS5          LanceDB text            (used only by the
+                 keywords               vectors                Photos page)
+
+      Every indexed file also has a FILE RECORD (name, path, size, dates, hash).
+      Photos that contain text also go through OCR, so screenshots are
+      searchable by their words.
+
+
+══════════════════════════════════════════════════════════════════════════════
+2. NORMAL SEARCH (TEXT OR VOICE)
+══════════════════════════════════════════════════════════════════════════════
+
+                          Text query / voice query
+                                      │
+                                      ▼
+                          Whisper, if voice input
+                                      │
+                                      ▼
+                            QUERY UNDERSTANDING
+          filters (type, date, size, folder), typo correction from your
+          own vocabulary, question detection, file-name detection
+                                      │
+                                      ▼
+                         ┌────────────────────────┐
+                         │    ADAPTIVE ROUTER     │
+                         │   agentic decision:    │
+                         │    picks ONE tier      │
+                         └───────────┬────────────┘
+                                     │
+         ┌──────────────┬────────────┴───┬──────────────────┐
+         ▼              ▼                ▼                  ▼
+     File name      Metadata         Keywords       Keywords + meaning
+         │              │                │              (hybrid)
+         │              │                │                  │
+         └──────────────┴───────┬────────┴──────────────────┘
+                                ▼
+                          SEARCH INDEX
+         ┌──────────────────────┼──────────────────────┐
+         ▼                      ▼                      ▼
+    File records           SQLite FTS5            LanceDB text
+  names, sizes, dates         BM25                   vectors
+         └──────────────────────┼──────────────────────┘
+                                ▼
+                           CANDIDATES
+                                │
+                                ▼
+                         CONFIDENCE CHECK
+                          │            │
+                         YES           NO
+                          │            ▼
+                          │     ESCALATE ONE TIER
+                          │            │
+                          │            ▼
+                          │   SEARCH INDEX AGAIN
+                          │            │
+                          │            ▼
+                          │       STILL UNSURE?
+                          │        │         │
+                          │       NO        YES
+                          │        │         ▼
+                          │        │   CROSS-ENCODER
+                          │        │     RERANKER
+                          │        │         │
+                          └────────┴────┬────┘
+                                        ▼
+                                   CANDIDATES
+                                        │
+                                        ▼
+                     PERSONALIZATION, near-ties only
+             frequency, recency, file type, topic, time of day
+                                        │
+                                        ▼
+                          FINAL RESULTS + EXPLANATION
+              why it matched, personal reason, strong or weak,
+                    search route and time taken
+                                        │
+                                        ▼
+               suggests Ask when a question found nothing confident
+
+
+══════════════════════════════════════════════════════════════════════════════
+3. PHOTOS AND VIDEOS SEARCH (SEPARATE PATH)
+══════════════════════════════════════════════════════════════════════════════
+
+                         User opens the Photos page
+                                      │
+                                      ▼
+                   Describes a picture: CLIP text query
+                                      │
+                                      ▼
+                         LanceDB image vectors
+                                      │
+                                      ▼
+                        Photos and video moments
+
+        CLIP image vectors never enter the normal search candidates.
+
+        A photo that contains text:
+              Photo ──→ CLIP ──→ image vectors   (Photos page)
+                │
+                └────→ OCR ───→ text passages    (normal search)
+
+
+══════════════════════════════════════════════════════════════════════════════
+4. PERSONALIZATION AND MEMORY
+══════════════════════════════════════════════════════════════════════════════
+
+                 Local activity history (optional, can be cleared)
+              searches, opened files, revealed files, clicks, times
+         + Windows Recent items, only if the user switches the import on
+                                      │
+                                      ▼
+                                   PROFILE
+                                      │
+         ┌────────────────────────────┼────────────────────────────┐
+         ▼                            ▼                            ▼
+     RANKING                   RECOMMENDATIONS                 ASK CONTEXT
+  (near-ties only)            (before you type)            (for the planner)
+         │                            │                            │
+  frequency, recency,          files used together,         current session,
+  file type, topic,            usual at this time,          usual topics
+  time of day                  used most
+         │                            │                            │
+         ▼                            ▼                            ▼
+   Final results                 Search page                  Ask planner
+
+
+══════════════════════════════════════════════════════════════════════════════
+5. ASK MODE (SEPARATE, STARTED BY THE USER)
+══════════════════════════════════════════════════════════════════════════════
+
+                       User asks with ? or the Ask button
+                                      │
+                                      ▼
+                   FIRST-LOOK SEARCH (the router picks the route)
+                                      │
+                                      ▼
+               QUICK EVIDENCE: the closest passage, shown at once
+                                      │
+                                      ▼
+                         QWEN2.5-1.5B PLANNER (local)
+                   working context: current session, usual topics
+                                      │
+                                      ▼
+                          IS THE EVIDENCE ENOUGH?
+                            │                 │
+                           YES                NO
+                            │                 ▼
+                            │            CHOOSE A TOOL
+                            │          ┌──────┴────────┐
+                            │          ▼               ▼
+                            │       Search          Read more
+                            │     new words,       of a source
+                            │   mode, filters          │
+                            │          └───────┬───────┘
+                            │                  ▼
+                            │          back to the PLANNER
+                            │
+                            │   at most 4 tool calls, including the first look
+                            │   25 s planning budget, 50 s hard cap
+                            ▼
+                  LOCAL LLM WRITES THE ANSWER with [n] citations
+                                      │
+                                      ▼
+                          CODE GROUNDING CHECK
+                                      │
+                    ┌─────────────────┼──────────────────────┐
+                    ▼                 ▼                      ▼
+             Citations support   Question premise     Figures not in the
+             the answer?         in the sources?      sources?
+             (extra ones                                     │
+              removed)                                       ▼
+                    │                 │              WARNING shown,
+                    └────────┬────────┘              answer stays visible
+                             ▼
+                      GROUNDING RESULT
+                       │            │
+                     PASS          FAIL
+                       │            │
+                       ▼            ▼
+              Answer + citations   "I couldn't find that in your files"
+
+
+══════════════════════════════════════════════════════════════════════════════
+6. WHERE THE AGENTIC AI IS
+══════════════════════════════════════════════════════════════════════════════
+
+ ┌────────────────────────────────────────────────────────────────────────────┐
+ │ 1. ASK AGENT (the LLM agent)                              Objective 1      │
+ │    Qwen2.5-1.5B: plan → search or read → observe → decide → write answer   │
+ │    → checked by the code                                                    │
+ ├────────────────────────────────────────────────────────────────────────────┤
+ │ 2. ADAPTIVE SEARCH ROUTER                                 Objective 3      │
+ │    picks one tier → retrieves → checks confidence → escalates if needed    │
+ │    → reranks only if still unsure; can learn from your own searches        │
+ ├────────────────────────────────────────────────────────────────────────────┤
+ │ 3. MEMORY AND PERSONALIZATION                             Objective 2      │
+ │    activity history → profile → near-tie ranking, recommendations,         │
+ │    and working context for the Ask agent                                    │
+ └────────────────────────────────────────────────────────────────────────────┘
+
+ Supporting autonomous behaviour (not an AI agent): Windows file watching,
+ automatic index maintenance, power-aware indexing (pauses in power-saving mode; on battery too if the user turns that on).
+```
+
+Escalation follows a fixed order: file name, then keywords, then keywords + meaning, then keywords + meaning with the cross-encoder reranker. A metadata query (filters only) lists the matching files and never escalates.
+
+## Three views in more detail
+
+The diagram above shows the whole system. These three zoom in on the parts a reader is most likely to question. Names in the boxes are functions, files or settings in the code (paths under `backend/app/` unless they say otherwise).
+
+### Indexing pipeline
+
+The path a file takes from a folder to the search index. `files/service.py` watches for changes and `indexing/folder_scan.py` decides what each file needs.
+
+```mermaid
+flowchart TD
+  A["Allowed folders<br/>files/access.py"] --> B["Watcher, 30 s debounce<br/>files/service.py, files/debounce.py"]
+  A --> C["Full scan at every start<br/>index_folder()"]
+  B --> D["_scan_one(): decide what the file needs"]
+  C --> D
+  P{{"Power check<br/>power/, pauses between files on battery"}} -. gates .-> D
+  D --> E{"Size and modified time<br/>match the record?"}
+  E -- yes --> S1["Skip, no read"]
+  E -- no --> F["SHA-256 of the file"]
+  F --> G{"Same hash as the record?"}
+  G -- yes --> S1
+  G -- no --> H{"Known hash but the old<br/>path is gone?"}
+  H -- yes --> R["Rename: move the record,<br/>keep the vectors"]
+  H -- no --> I["Write the file record<br/>indexed = false"]
+  I --> J{"File type"}
+  J -- "text, Office, PDF" --> K["extraction/: one extractor per type<br/>scanned pages: Windows OCR"]
+  J -- audio --> L["transcription/: Whisper base.en"]
+  J -- "photo, video" --> M["visual_indexer: CLIP vectors<br/>then index_image_text(): OCR if 5 or more words"]
+  K --> N["chunking/chunker.py<br/>224 tokens, 32 overlap"]
+  L --> N
+  M --> N
+  N --> O["Indexer._store_blocks()"]
+  O --> Q[("SQLite FTS5<br/>keyword_store")]
+  O --> T[("LanceDB text vectors<br/>bge-small, 384 dimensions")]
+  M --> U[("LanceDB image vectors<br/>CLIP, 512 dimensions")]
+  Q --> V["mark_indexed(): record.indexed = true"]
+  T --> V
+  U --> V
+  X["Deleted files:<br/>tombstone, then cleanup_tombstones()"] -. removes .-> Q
+  X -. removes .-> T
+```
+
+Two safety rules are in this path. A file that fails to read or extract is counted and listed, and never stops the folder scan. The old passages are deleted only after the new ones are ready, so a locked file does not vanish from search. A crash between "write the record" and `mark_indexed()` leaves `indexed = false`, and the next scan repairs that file without a full rescan.
+
+### Search routing and the Ask flow
+
+Normal search is a fixed pipeline with a router in front. Ask is a separate loop that calls that same search as one of its tools.
+
+```mermaid
+flowchart TD
+  Q["Query text"] --> PQ["parse_query(): filters, quoted phrase<br/>search/query_parsing.py"]
+  PQ --> SP["Typo correction from your own vocabulary<br/>search/spelling.py"]
+  SP --> RT{"route()<br/>search/router.py"}
+  RT -- "names a file (2+ words, 75%+ match)" --> T1["filename<br/>names only"]
+  RT -- "filters only" --> T2["metadata<br/>list matching files"]
+  RT -- "3 or fewer known words, no question" --> T3["keyword<br/>names + BM25"]
+  RT -- "anything else" --> T4["hybrid<br/>names + BM25 + vectors + RRF"]
+  T1 --> CF{"A strong result?"}
+  T3 --> CF
+  T4 --> CF
+  T2 --> OUT
+  CF -- yes --> OUT["_personalize(): near-ties only<br/>_prune_weak(): at most 3 weak results"]
+  CF -- no --> ES["Escalate one tier, once<br/>filename to keyword to hybrid to hybrid+rerank"]
+  ES --> OUT
+  OUT --> RES["Results + route report<br/>tier, reason, ms per stage, suggest_ask"]
+
+  AQ["Question with ? or the Ask button<br/>GET /ask"] --> LB{"About the collection?<br/>agent/library.py"}
+  LB -- yes --> LA["Exact answer from the index<br/>no model"]
+  LB -- no --> FL["First look: search(question, auto)<br/>the router picks the tier"]
+  FL --> QA["quick_answer: best sentence shown at once"]
+  FL --> PL["Planner: Qwen2.5-1.5B<br/>agent/loop.py"]
+  PL -- "search again: query, mode, filters" --> TS["Toolbox.search()<br/>agent/tools.py"]
+  PL -- "read more of a source" --> TR["Toolbox.read_more()"]
+  TS --> PL
+  TR --> PL
+  TS -. same pipeline .-> RT
+  PL -- "enough evidence, or the limits" --> AN["Model writes the answer with [n] citations<br/>at most 6 sources"]
+  AN --> GR{"Code grounding check<br/>_ground(), _trim_citations(),<br/>_unsupported_premise()"}
+  GR -- pass --> OK["Answer + cited files<br/>warning if a figure is not in the sources"]
+  GR -- fail --> NF["I couldn't find that in your files"]
+```
+
+The limits in the Ask loop are set in `agent/loop.py`: `MAX_TOOL_CALLS = 4` (the first look counts as one), `BUDGET_SECONDS = 25`, planning stops at 1.3 times the budget, and nothing asks the model after 2 times the budget (50 s). The reranker is reached only by escalation from hybrid, because a measurement showed it changed no result when it ran up front.
+
+### Security and offline boundary
+
+What is allowed to talk to what, and what stops everything else. The code that enforces each line is named.
+
+```mermaid
+flowchart LR
+  subgraph PC["Your Windows PC"]
+    subgraph SHELL["Desktop shell: desktop/src-tauri/src/lib.rs"]
+      TK["new_token(): 128 random bits per launch"]
+      UI["React UI in WebView2<br/>api_token command"]
+    end
+    subgraph ENG["Search engine: backend/app/main.py, run_backend.py"]
+      MW["require_api_token middleware<br/>x-intellifile-token, secrets.compare_digest"]
+      API["FastAPI routes"]
+      ACC["files/access.py: all, limited or denied<br/>_safe_path(): only indexed files"]
+      OG["offline_guard.py<br/>test builds only"]
+    end
+    FILES[["Your folders: read only"]]
+    DATA[("%LOCALAPPDATA%\\IntelliFile")]
+    OTHER["Any other program<br/>or web page"]
+  end
+  NET(("Internet"))
+
+  TK -- "INTELLIFILE_API_TOKEN, INTELLIFILE_PARENT_PID" --> ENG
+  TK --> UI
+  UI -- "http://127.0.0.1:8756 + token" --> MW
+  MW -- "token ok" --> API
+  OTHER -- "no token: 401, except /health" --> MW
+  API --> ACC
+  ACC -. "reads only what you allowed" .-> FILES
+  API --> DATA
+  ENG -- "no network code" --x NET
+  OG -. "test runs: every non-loopback connect or DNS lookup is refused and counted" .-> NET
+  ENG -. "exits when the shell is gone" .-> SHELL
+```
+
+What each part guarantees, and what it does not:
+
+- **Loopback only.** `run_backend.py` binds to `127.0.0.1` by default, so other computers cannot reach the engine.
+- **Token on every request.** The shell creates a new 128-bit token at each launch and passes it to the engine in an environment variable and to the page through the `api_token` command. The middleware in `main.py` answers 401 to any request without it, except `/health`, which reveals nothing sensitive to a caller without the token. A web page cannot read the index, and CORS allows only the app's own origins.
+- **Indexed files only.** Thumbnails and previews are served only for files in the index, because any web page can point an image tag at a local port.
+- **Read-only.** The engine reads the files the user allowed in the first-run screen (`all`, `limited` or `denied`) and never writes to them. File contents are treated as data: nothing inside a document is run.
+- **Offline.** The shipped app has no code that connects out. `offline_guard.py` turns that claim into a measurement: with `INTELLIFILE_OFFLINE_GUARD=1` every non-loopback connection or name lookup is refused and counted, and the tests assert the count is 0. The guard is a test tool. The shipped app does not depend on it.
+- **No orphan engine.** The shell stops the engine on exit, and the engine exits by itself when the shell process is gone (`INTELLIFILE_PARENT_PID`), so a crash cannot leave an open port behind.
+- **Known gap.** `tauri.conf.json` sets `csp` to `null`, so the app page has no Content Security Policy. The page loads only bundled code, and this has not been tightened.
+
+## Final principles
+
+1. The reranker never comes before retrieval.
+2. The router picks one of 4 tiers; every tier reads the search index.
+3. "Keywords + meaning" is the hybrid tier.
+4. File name and metadata tiers read the file records.
+5. CLIP image vectors stay in their own store and never join text results.
+6. Photo search is a separate path: CLIP text query to image vectors.
+7. OCR reads scans, screenshots and photos that contain text.
+8. Only new or changed files are processed.
+9. Unchanged files are skipped.
+10. Renamed files update their path only.
+11. Deleted files are removed from the index.
+12. Ask is a separate mode that the user starts.
+13. Normal search only suggests Ask when a question found nothing confident.
+14. Ranking signals, recommendations and Ask context are separate uses of the same profile.
+15. Personalization reorders near-ties only.
+16. Ask uses at most 4 tool calls, including the first look.
+17. Ask has a 25 s planning budget and a 50 s hard cap.
+18. Unsupported figures produce a warning; only citations and premise decide pass or fail.
+19. There are 3 agentic AI components: the Ask agent, the adaptive router, and memory and personalization.
+20. File watching and power-aware indexing are supporting autonomy.
+21. IntelliFile is offline, uses local models, and never changes the user's files.
+
+## Where each part is in the code
+
+The code is already arranged the way the architecture is drawn: each section has its own package. Paths are under `backend/app/` unless they say otherwise.
+
+| Section | Box in the architecture | Code |
+|---|---|---|
+| The two programs | Desktop app, Ctrl+Space window | `desktop/src` (React), `desktop/src-tauri` (Rust shell) |
+| | Local API with a key per launch, offline guard | `main.py`, `offline_guard.py` |
+| **1. Indexing** | Watch live changes, 30 s debounce | `files/service.py`, `files/debounce.py`, `watch_setup.py` |
+| | Folders allowed by the user | `files/access.py`, `files/discovery.py` |
+| | Change detection (size + time, then SHA-256), full scan at start, rename, skip | `indexing/folder_scan.py`, `files/identity.py` |
+| | Deleted files removed from the index | `indexing/cleanup.py` |
+| | Text / Office extraction | `extraction/` (one extractor per file type) |
+| | Windows OCR for scans, screenshots and photos with text | `extraction/ocr.py`, `extraction/pdf_extractor.py`, `indexing/indexer.py` (`index_image_text`) |
+| | Whisper for audio, with a guard against looping text and filler on music | `transcription/` (`guard.py`, `whisper_onnx.py`) |
+| | Audio-only files with a video extension (WhatsApp ".mpeg" voice notes) go to Whisper, not CLIP | `files/media.py`, `indexing/folder_scan.py` (`uses_visual_pipeline`) |
+| | Optional "search what is said in videos" (first 10 minutes, off by default) | `indexing/folder_scan.py`, `indexing/indexer.py` (`index_video_speech`) |
+| | CLIP for photos and video frames | `embeddings/clip_model.py`, `indexing/visual_indexer.py` |
+| | Text passages (224 tokens) | `chunking/chunker.py`, `indexing/indexer.py` |
+| | File records, SQLite FTS5, LanceDB text and image vectors | `storage/sqlite_store.py`, `storage/keyword_store.py`, `storage/lancedb_store.py`, `embeddings/model.py` |
+| | Power-aware indexing | `power/` |
+| **2. Normal search** | Query understanding: filters | `search/query_parsing.py` |
+| | Typo correction from your own vocabulary | `search/spelling.py`, `search/grammar.py`, `search/dictionary.py` |
+| | Question and file-name detection | `search/router.py`, `search/filenames.py` |
+| | Adaptive router (rules, or learned from your searches) | `search/router.py`, `search/learned_router.py` |
+| | Search index, candidates, confidence check, escalation | `search/service.py`, `search/fusion.py` |
+| | Cross-encoder reranker | `search/reranker.py` |
+| | Personalization, near-ties only | `search/service.py` (`_personalize`) |
+| | Final results + explanation, weak results capped | `search/explain.py`, `search/service.py` (`_prune_weak`) |
+| **3. Photos and videos** | CLIP text query to image vectors | `visual_search/service.py`, `thumbnails.py` |
+| | Explorer-style browsing: drives, quick access, folder listing, recent files (read-only; one path check) | `routes/browse.py`, `files/browsing.py` |
+| **4. Personalization and memory** | Activity history | `context/usage_store.py` |
+| | Windows Recent items import | `context/windows_recent.py` |
+| | Profile (frequency, recency, type, topic, time, files used together) | `context/profile.py` |
+| | Recommendations | `context/recommendations.py` |
+| | Settings (remember activity, personalize, import) | `context/settings.py` |
+| **5. Ask mode** | Agent loop: first look, quick evidence, planner, tools, limits, grounding check | `agent/loop.py` |
+| | Tools (search, read more) and the working context | `agent/tools.py` |
+| | Local Qwen2.5-1.5B model | `agent/llm.py` |
+| **6. Where the agentic AI is** | Ask agent / adaptive router / memory | `agent/` / `search/router.py`, `search/learned_router.py`, `search/service.py` / `context/` |
+| Tests | One end-to-end script per part, run together offline | `backend/scripts/run_all_phases.py`, `backend/scripts/prototype_*.py`, `backend/scripts/evaluate_*.py` |

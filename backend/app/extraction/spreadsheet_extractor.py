@@ -1,0 +1,91 @@
+"""CSV/TSV and Excel (.xlsx/.xlsm) extraction. Added 2026-09-20.
+
+A spreadsheet becomes one block per sheet: the header row first, then
+each row's cells joined by spaces, rows separated by newlines. Keeping
+the header row means column names are searchable ("invoice total", "due
+date"), and keeping rows intact means a row's values stay together in
+one chunk, so "Alice 2024 paid" finds the row about Alice.
+
+Formulas are never evaluated (Phase 12: file contents are untrusted
+input) — openpyxl's data_only=True returns the values Excel last cached.
+"""
+
+import csv
+import io
+from pathlib import Path
+
+from .blocks import ExtractedBlock
+from .normalize import read_text_file
+
+# The csv module refuses a field over 128 KB by default, failing the whole
+# file; the file is already in memory, so allow what a C long can hold.
+csv.field_size_limit(2**31 - 1)
+
+# A data dump with 100k rows is not a document a person searches by
+# meaning; the first rows carry the schema and enough content to find
+# the file. Beyond this the rest is dropped (the file is still indexed).
+MAX_SPREADSHEET_ROWS = 2000
+MAX_CELL_CHARS = 500
+
+
+def _clean_cell(value) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return text[:MAX_CELL_CHARS]
+
+
+def _rows_to_text(rows) -> str:
+    lines = []
+    for i, row in enumerate(rows):
+        if i >= MAX_SPREADSHEET_ROWS:
+            break
+        cells = [_clean_cell(c) for c in row]
+        line = " ".join(c for c in cells if c)
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def extract_delimited(path: Path) -> list[ExtractedBlock]:
+    """CSV / TSV via the stdlib. The delimiter is sniffed from the first
+    few KB so European semicolon-CSVs work too; .tsv forces a tab."""
+    raw = read_text_file(path)
+    if not raw.strip():
+        return []
+
+    if path.suffix.lower() == ".tsv":
+        delimiter = "\t"
+    else:
+        try:
+            delimiter = csv.Sniffer().sniff(raw[:4096], delimiters=",;\t|").delimiter
+        except csv.Error:
+            delimiter = ","
+
+    # DEFECT-003 fix (2026-11-02): csv.reader needs the raw multi-line text
+    # as one stream to reassemble a quoted field's embedded newline — fed
+    # a pre-split list of lines (str.splitlines()), it silently lost the
+    # newline and tore a multiline cell across two "rows" instead. io.StringIO
+    # gives it the real file structure, the way the stdlib docs expect it
+    # to be used (an open file object or equivalent).
+    reader = csv.reader(io.StringIO(raw), delimiter=delimiter)
+    text = _rows_to_text(reader)
+    return [ExtractedBlock(text=text)] if text else []
+
+
+def extract_xlsx(path: Path) -> list[ExtractedBlock]:
+    """One block per non-empty sheet; the sheet name becomes the block's
+    section so a hit can say which tab it came from."""
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(str(path), read_only=True, data_only=True)
+    blocks = []
+    try:
+        for sheet in workbook.worksheets:
+            sheet.reset_dimensions()  # a wrong <dimension> in the file would cut the rows short
+            text = _rows_to_text(sheet.iter_rows(values_only=True))
+            if text:
+                blocks.append(ExtractedBlock(text=text, section=sheet.title))
+    finally:
+        workbook.close()
+    return blocks

@@ -1,0 +1,289 @@
+/* Icons are bundled (the app must work offline). Text uses Windows' own
+   fonts, Segoe UI and Cascadia Mono, so no font files ship with the app. */
+@import "material-symbols/outlined.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens, after Windows 11 File Explorer (chosen 2026-09-27).
+   Colours are "R G B" channels so Tailwind can add opacity (text-ink/60).
+   Day is the default; Night applies when the user picks it, or picks
+   "Same as Windows" while Windows is in dark mode (theme.ts sets
+   data-theme on <html>). */
+:root {
+  --c-shell: 243 243 243;      /* the window: address row, title bar */
+  --c-canvas: 255 255 255;     /* the content area (same as content: Explorer is flat) */
+  --c-content: 255 255 255;    /* content, lists and menus */
+  --c-nav: 249 249 249;        /* the left tree */
+  --c-status: 243 243 243;     /* the status bar */
+  --c-field: 255 255 255;      /* search box, address field, unselected pills */
+  --c-ink: 26 26 26;
+  --c-sub: 94 94 94;           /* secondary text, 6.5:1 on white */
+  --c-dim: 107 107 107;        /* column headers, placeholders, 5.3:1 */
+  --c-rule: 229 229 229;
+  --c-rule-strong: 207 207 207;
+  --c-accent: 0 103 192;       /* Windows blue: actions */
+  --c-accent-strong: 0 80 160;
+  --c-on-accent: 255 255 255;
+  --c-accent-soft: 219 234 250; /* Explorer's selection fill */
+  --c-accent-soft-hover: 207 227 247;
+  --c-nav-selected: 230 230 230;
+  --c-marker: 0 103 192;       /* "found" and "you are here" */
+  --c-amber: 161 92 0;         /* reasons from your own habits */
+  --c-amber-soft: 246 235 218;
+  --c-amber-text: 122 70 0;
+  --c-error: 179 38 30;
+  --c-error-soft: 249 227 225;
+  --c-highlight: 255 236 153;  /* matched words in a passage */
+  --ft-pdf: 180 35 24;         /* file-type icons: each >= 4.5:1 on its own tint, also on a selected row */
+  --ft-doc: 48 86 181;
+  --ft-slides: 168 52 8;
+  --ft-sheet: 24 105 58;
+  --ft-image: 10 98 122;
+  --ft-audio: 133 78 0;
+  --ft-video: 75 85 99;
+  --ft-text: 82 90 102;
+  --ft-code: 71 85 105;
+  --panel-lift: 0 1px 2px rgb(0 0 0 / 0.04);
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --c-shell: 44 44 44;
+  --c-canvas: 25 25 25;
+  --c-content: 25 25 25;
+  --c-nav: 25 25 25;
+  --c-status: 28 28 28;
+  --c-field: 56 56 56;
+  --c-ink: 255 255 255;
+  --c-sub: 197 197 197;
+  --c-dim: 157 157 157;
+  --c-rule: 58 58 58;
+  --c-rule-strong: 80 80 80;
+  --c-accent: 96 205 255;
+  --c-accent-strong: 130 216 255;
+  --c-on-accent: 0 0 0;
+  --c-accent-soft: 36 54 62;
+  --c-accent-soft-hover: 42 64 74;
+  --c-nav-selected: 51 51 51;
+  --c-marker: 96 205 255;
+  --c-amber: 252 225 0;
+  --c-amber-soft: 70 60 20;
+  --c-amber-text: 252 225 120;
+  --c-error: 255 153 164;
+  --c-error-soft: 68 39 38;
+  --c-highlight: 110 95 40;
+  --ft-pdf: 255 120 110;
+  --ft-doc: 120 170 255;
+  --ft-slides: 255 150 90;
+  --ft-sheet: 110 210 140;
+  --ft-image: 90 200 225;
+  --ft-audio: 240 190 80;
+  --ft-video: 190 190 200;
+  --ft-text: 200 200 200;
+  --ft-code: 180 190 205;
+  --panel-lift: none;
+  color-scheme: dark;
+}
+:root {
+  --shell: rgb(var(--c-shell));
+  --canvas: rgb(var(--c-canvas));
+  --content: rgb(var(--c-content));
+  --overlay: rgb(var(--c-content));
+  --ink: rgb(var(--c-ink));
+  --rule: rgb(var(--c-rule));
+  --rule-strong: rgb(var(--c-rule-strong));
+  --hover: rgb(var(--c-ink) / 0.06);
+  --pressed: rgb(var(--c-ink) / 0.09);
+  --selected: rgb(var(--c-accent-soft));
+  --marker: rgb(var(--c-marker));
+  --fg: rgb(var(--c-ink));
+  --fg-muted: rgb(var(--c-sub));
+  --fg-dim: rgb(var(--c-dim));
+  --accent: rgb(var(--c-accent));
+  --accent-strong: rgb(var(--c-accent-strong));
+  --amber: rgb(var(--c-amber));
+  --error: rgb(var(--c-error));
+  /* Motion: short and only in answer to what the user did (Windows 11 timings). */
+  --fast: 90ms;
+  --normal: 160ms;
+  --ease: cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--shell);
+  color: var(--fg);
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  user-select: none;
+}
+/* The overlay window is transparent; its page paints only the panel. */
+body.overlay-window { background: transparent; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--rule-strong); border-radius: 5px; border: 2px solid var(--canvas); }
+::-webkit-scrollbar-track { background: transparent; }
+
+:focus-visible { outline: 2px solid var(--marker); outline-offset: 2px; }
+/* The search box shows focus on its frame, not on the bare input. */
+.omnibox input:focus-visible, .omnibox textarea:focus-visible { outline: none; }
+
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20;
+  font-size: 20px;
+  line-height: 1;
+  vertical-align: middle;
+}
+.icon-sm { font-size: 16px; }
+
+/* ---- the window ---- */
+/* Windows' own icon font (installed with Windows 11): nothing ships for the shell's icons. */
+.fi { font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets", sans-serif; font-style: normal; font-weight: 400; line-height: 1; display: inline-block; font-size: 16px; flex-shrink: 0; }
+
+/* Tree rows: a quiet fill on the current place and a short accent bar drawn on the row itself. */
+.tree-row { position: relative; border-radius: 4px; transition: background-color var(--fast) linear; }
+.tree-row:hover { background: var(--hover); }
+.tree-row[aria-current="page"] { background: rgb(var(--c-nav-selected)); }
+.tree-row[aria-current="page"]::before { content: ""; position: absolute; left: 0; top: 8px; width: 3px; height: 16px; border-radius: 2px; background: var(--accent); }
+.tree-row:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
+
+/* Command bar and address row buttons: 32 px targets, flat. */
+.cmd { display: inline-flex; align-items: center; gap: 8px; height: 32px; min-width: 32px; justify-content: center; padding: 0 8px; border-radius: 4px; color: var(--fg); white-space: nowrap; transition: background-color var(--fast) linear; }
+.cmd:hover:not(:disabled) { background: var(--hover); }
+.cmd:active:not(:disabled) { background: var(--pressed); }
+.cmd:disabled { opacity: 0.4; }
+.cmd[aria-pressed="true"] { background: var(--pressed); }
+
+/* Pills: Recent / Favorites, and the kind-of-file filters. */
+.pill { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 16px; background: rgb(var(--c-field)); border: 1px solid transparent; color: var(--fg); }
+:root:not([data-theme="dark"]) .pill { border-color: var(--rule-strong); }
+.pill:hover { background: color-mix(in srgb, rgb(var(--c-field)), rgb(var(--c-ink)) 6%); }
+.pill[aria-selected="true"] { background: var(--accent); color: rgb(var(--c-on-accent)); border-color: var(--accent); }
+
+/* A menu or flyout. */
+.menu { background: color-mix(in srgb, rgb(var(--c-content)), rgb(var(--c-ink)) 4%); border: 1px solid var(--rule-strong); border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.14); }
+:root[data-theme="dark"] .menu { box-shadow: 0 8px 24px rgb(0 0 0 / 0.4); }
+.menu-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px; border-radius: 4px; text-align: left; font-size: 14px; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--hover); outline: none; }
+.menu-sep { height: 1px; margin: 4px 0; background: var(--rule); }
+
+/* File lists: Explorer rows, flat. The focused row (keyboard) gets a ring while the list has focus. */
+.row { transition: background-color var(--fast) linear; }
+.row:hover { background: var(--hover); }
+.row[aria-selected="true"] { background: rgb(var(--c-accent-soft)); }
+.row[aria-selected="true"]:hover { background: rgb(var(--c-accent-soft-hover)); }
+.list-wrap:focus { outline: none; }
+.list-wrap:focus-visible [data-focus="true"] { outline: 2px solid var(--fg); outline-offset: -2px; }
+.tile { border-radius: 4px; }
+.tile:hover { background: var(--hover); }
+.tile[aria-selected="true"] { background: rgb(var(--c-accent-soft)); }
+
+/* The scope switch: two always-visible options. */
+.seg { display: inline-flex; height: 32px; border: 1px solid var(--rule-strong); border-radius: 4px; overflow: hidden; flex-shrink: 0; background: rgb(var(--c-field)); }
+.seg button { padding: 0 10px; font-size: 13px; color: var(--fg); }
+.seg button[aria-checked="true"] { background: var(--accent); color: rgb(var(--c-on-accent)); }
+.seg button:not([aria-checked="true"]):hover { background: var(--hover); }
+
+.drive-bar { height: 12px; background: #E6E6E6; border-radius: 2px; overflow: hidden; }
+.drive-bar > i { display: block; height: 100%; background: #0070CB; }
+.drive-bar > i.full { background: #C42B1C; }
+
+/* Windows high contrast: system colours, outlines for selection. */
+@media (forced-colors: active) {
+  .row[aria-selected="true"], .tile[aria-selected="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .pill[aria-selected="true"], .seg button[aria-checked="true"] { background: Highlight; color: HighlightText; }
+}
+
+/* ---- surfaces ---- */
+.panel { background: var(--content); border: 1px solid var(--rule); border-radius: 8px; }
+/* File-type tile: the kind's colour for the icon, faint for the ground. */
+.ft { color: rgb(var(--ft)); background: rgb(var(--ft) / 0.08); border: 1px solid rgb(var(--ft) / 0.28); }
+.kbd {
+  font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px;
+  padding: 1px 5px; border-radius: 4px; border: 1px solid var(--rule-strong);
+  background: var(--content); color: var(--fg-muted);
+}
+/* Mono is for paths, sizes and timings only: data, not labels. */
+.mono { font-family: "Cascadia Mono", Consolas, monospace; }
+
+/* File-type tag in the preview header. */
+.badge { font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; border: 1px solid currentColor; background: transparent; }
+.badge-text, .badge-code { color: rgb(var(--ft-text)); }
+.badge-doc { color: rgb(var(--ft-doc)); }
+.badge-image { color: rgb(var(--ft-image)); }
+.badge-audio { color: rgb(var(--ft-audio)); }
+.badge-video { color: rgb(var(--ft-video)); }
+.badge-sheet { color: rgb(var(--ft-sheet)); }
+.badge-slides { color: rgb(var(--ft-slides)); }
+
+/* Tags: small rectangles. */
+.chip { font-size: 12px; padding: 1px 7px; border-radius: 4px; background: rgb(var(--c-ink) / 0.07); color: var(--fg-muted); white-space: nowrap; }
+.chip-accent { background: var(--selected); color: var(--marker); }
+.chip-personal { background: rgb(var(--c-amber-soft)); color: rgb(var(--c-amber-text)); }
+mark.hl { background: rgb(var(--c-highlight)); color: rgb(var(--c-ink)); border-radius: 2px; padding: 0 1px; }
+
+/* ---- controls (Windows 11 buttons: 4px corners, a darker bottom edge on the secondary) ---- */
+.btn-primary, .btn-secondary, .btn-ghost { border-radius: 4px; transition: background-color var(--fast) linear, color var(--fast) linear; }
+.btn-primary { background: var(--accent); color: rgb(var(--c-on-accent)); border: 1px solid var(--accent); }
+.btn-primary:hover { background: var(--accent-strong); }
+.btn-primary:active { opacity: 0.85; }
+.btn-primary:disabled { opacity: 0.45; }
+.btn-secondary { background: var(--content); color: var(--fg); border: 1px solid var(--rule); border-bottom-color: var(--rule-strong); }
+.btn-secondary:hover { background: color-mix(in srgb, var(--content), rgb(var(--c-ink)) 4%); }
+.btn-secondary:active { background: color-mix(in srgb, var(--content), rgb(var(--c-ink)) 8%); }
+.btn-ghost { color: var(--fg-muted); }
+.btn-ghost:hover { color: var(--fg); background: var(--hover); }
+.btn-ghost:active { background: var(--pressed); }
+
+/* The search box: a Windows text box, whose bottom edge turns blue when focused. */
+.omnibox { border-radius: 6px; border-color: var(--rule) !important; border-bottom: 1px solid rgb(var(--c-ink) / 0.45) !important; }
+.omnibox:focus-within { border-bottom: 2px solid var(--accent) !important; }
+
+/* Windows switch: a rounded track and a small round knob that slides. */
+.toggle { border-radius: 999px !important; transition: background-color var(--fast) linear, border-color var(--fast) linear; }
+.toggle[aria-checked="false"] { background: transparent !important; border-color: rgb(var(--c-ink) / 0.6) !important; }
+.toggle-knob { width: 12px !important; height: 12px !important; top: 4px !important; border-radius: 999px !important; transition: left var(--normal) var(--ease); }
+.toggle[aria-checked="false"] .toggle-knob { left: 4px !important; background: rgb(var(--c-ink) / 0.75) !important; }
+.toggle[aria-checked="true"] .toggle-knob { left: 22px !important; background: rgb(var(--c-on-accent)) !important; }
+
+.skeleton { border-radius: 8px; background: rgb(var(--c-ink) / 0.06); }
+
+/* Recording: the mic button turns red while it listens; the bars are the
+   live microphone level set from JavaScript, not an animation. */
+.mic-rec { background: #C42B1C; color: #FFFFFF; }
+.bars { display: flex; align-items: center; gap: 2px; height: 16px; }
+.bars i { width: 3px; border-radius: 2px; background: var(--error); transition: height .08s linear; }
+
+/* Progress: one solid bar that grows. */
+.progress { height: 4px; border-radius: 2px; background: rgb(var(--c-ink) / 0.1); overflow: hidden; }
+.progress > i { display: block; height: 100%; border-radius: 2px; background: var(--marker); transition: width .4s ease; }
+/* Work of unknown length (Ask searching): Windows' indeterminate bar. */
+.progress-indeterminate { position: relative; height: 3px; border-radius: 2px; overflow: hidden; background: rgb(var(--c-ink) / 0.08); }
+.progress-indeterminate::after {
+  content: ""; position: absolute; top: 0; bottom: 0; width: 35%; border-radius: 2px; background: var(--marker);
+  animation: indeterminate 1.4s var(--ease) infinite;
+}
+@keyframes indeterminate { from { left: -35%; } to { left: 100%; } }
+
+/* ---- motion that answers an action ---- */
+/* A page, a popover or a dialog appearing; a passage replacing another. */
+.anim-page { animation: fade-in var(--fast) linear; }
+.anim-fade { animation: fade-in var(--normal) linear; }
+.anim-pop { animation: pop-in var(--normal) var(--ease); transform-origin: top right; }
+.anim-dialog { animation: pop-in var(--normal) var(--ease); }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* Windows' "Animation effects" off means no motion at all. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+
+.drag { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }
+input, textarea { user-select: text; }

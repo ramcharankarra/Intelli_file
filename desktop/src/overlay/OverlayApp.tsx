@@ -1,0 +1,49 @@
+import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { OverlaySearch } from "./OverlaySearch";
+import "../App.css";
+
+/**
+ * Ctrl+Space popup: OverlaySearch inside the overlay window
+ * (transparent/frameless/always-on-top, declared in src-tauri/tauri.conf.json).
+ * The Rust side toggles this window's visibility and emits "overlay-shown" on
+ * each open so the box resets instead of showing the last search.
+ */
+export function OverlayApp() {
+  const [resetKey, setResetKey] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unlisten = listen("overlay-shown", () => {
+      setError(null);
+      setResetKey((k) => k + 1);
+    });
+    // The shell hides the overlay when it loses focus: remount the search so
+    // a recording in progress stops and the microphone is released.
+    const unfocus = getCurrentWindow().onFocusChanged(({ payload: focused }) => { if (!focused) setResetKey((k) => k + 1); });
+    return () => {
+      unlisten.then((f) => f());
+      unfocus.then((f) => f());
+    };
+  }, []);
+
+  const hide = useCallback(() => {
+    setResetKey((k) => k + 1);
+    getCurrentWindow().hide();
+  }, []);
+
+  return (
+    <div className="flex h-screen flex-col p-3">
+      <div
+        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-rule shadow-palette"
+        style={{ background: "var(--overlay)" }}
+      >
+        <div className="min-h-0 flex-1 p-3">
+          <OverlaySearch key={resetKey} onError={setError} onEscape={hide} />
+        </div>
+        {error && <div className="shrink-0 border-t border-rule px-3 py-2 text-[12px] text-error">{error}</div>}
+      </div>
+    </div>
+  );
+}

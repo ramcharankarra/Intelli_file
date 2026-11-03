@@ -1,0 +1,75 @@
+# Node / frontend
+node_modules/
+dist/
+desktop/dist/
+
+# Rust / Tauri
+target/
+desktop/src-tauri/target/
+
+# Python / backend
+backend/venv/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Local app data / indexes (never commit user data or generated indexes)
+IntelliFile Data/
+*.lance/
+*.db
+
+# Bundled models (large binaries — fetched/pinned via a setup script, not
+# committed; whole directory, since real model repos nest files a level
+# or two deep, e.g. backend/models/all-MiniLM-L6-v2/model.onnx)
+backend/models/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Env / secrets
+.env
+.env.local
+.superpowers/
+
+# Phase 14 build inputs (assembled by scripts/assemble_resources.py — large binaries)
+backend/venv-build/
+backend/build/
+backend/dist/
+# The whole folder is assembled by backend/scripts/assemble_resources.py on every build
+# (copies of backend/data, the sample folder and docs/HOW_TO_RUN.md, plus the large bundles).
+desktop/src-tauri/resources/
+
+
+# Local working folder: test scratch space, logs and design references,
+# kept inside the project (on the same drive) and never committed.
+.local/
+
+# Local project documentation
+Implimentation_plan.md
+PROJECT_SUMMARY.md
+
+
+# Extra safety nets
+.env.*
+*.gguf
+*.pem
+*.log
+venv/
+*.key
+*.p12
+*.pfx
+credentials*.json
+
+# Claude Code project settings and agents (kept locally, not published)
+.claude/
+
+# Post-incident dry-run script (2026-11-02): hardcodes the real machine's
+# username and real personal screenshot filenames/paths as test data for
+# the removal-procedure dry run against the incident backup copy. Keep
+# local; never publish. See POST_INCIDENT_REMEDIATION_REPORT.md.
+backend/scripts/check_incident_removal.py

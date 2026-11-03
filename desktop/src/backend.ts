@@ -1,0 +1,555 @@
+// Dev-time only: the Python backend is run manually on this port during
+// development. Once the sidecar wiring lands (Phase 14), the port will be
+// resolved dynamically instead of hardcoded.
+// VITE_BACKEND_URL lets a development copy run beside an installed IntelliFile.
+export const BACKEND_URL: string = import.meta.env.VITE_BACKEND_URL ?? "http://127.0.0.1:8756";
+
+// Phase 12: inside the desktop shell every request carries the per-launch
+// API token the shell gave the backend. In a plain browser tab (dev) there
+// is no shell: a dev backend started by hand prints its token, and
+// VITE_API_TOKEN (same value) lets the tab send it.
+let apiToken: string | null = null;
+const tokenReady: Promise<string | null> = (async () => {
+  if (!("__TAURI_INTERNALS__" in window)) return import.meta.env.VITE_API_TOKEN ?? null;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    apiToken = await invoke<string>("api_token");
+  } catch {
+    apiToken = null;
+  }
+  return apiToken;
+})();
+
+export async function authHeaders(): Promise<Record<string, string>> {
+  const token = await tokenReady;
+  return token ? { "X-IntelliFile-Token": token } : {};
+}
+
+// One wording for "the engine is not answering", shared by the sidebar and every page.
+// "Starting" only until the engine first answers; after that, or once App.tsx's
+// health probe hears of a problem (from the desktop shell, or health dropping), it has stopped.
+export const ENGINE_STARTING = "The search engine isn't running yet. It starts with the app and is usually ready within 15 seconds.";
+export const ENGINE_STOPPED_TITLE = "Search engine stopped";
+export const ENGINE_STOPPED_HINT = "Quit IntelliFile fully and open it again.";
+export const ENGINE_STOPPED = `The search engine stopped. ${ENGINE_STOPPED_HINT}`;
+let engineSeenUp = false;
+let engineStopped = false;
+/** Called by App.tsx's health probe with what the sidebar shows. */
+export function setEngineStopped(stopped: boolean): void {
+  engineStopped = stopped;
+}
+
+/** True when a request failed because the engine could not be reached at all: the sidebar already says so. */
+export const engineUnreachable = (e: unknown) =>
+  (e instanceof TypeError && /fetch|network/i.test(e.message)) // not a programming TypeError
+  || (e instanceof DOMException && e.name === "TimeoutError"); // a poll that got no answer in time
+
+/** A connection failure (engine not up yet, or gone) reads as a sentence, not "TypeError: Failed to fetch". */
+export function describeError(e: unknown, path = ""): string {
+  if (e instanceof DOMException && e.name === "AbortError") return "";
+  if (engineUnreachable(e)) return engineStopped || engineSeenUp ? ENGINE_STOPPED : ENGINE_STARTING;
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/ 401$/.test(msg)) return "The app lost its connection key to the search engine. Quit IntelliFile fully and open it again.";
+  return path ? `${path}: ${msg}` : msg;
+}
+
+/** A refused request: the status, and the sentence the engine gave (its {"error": ...} or {"detail": ...}). */
+export class ApiError extends Error {
+  constructor(path: string, public status: number, public detail: string) { super(`${path} failed: ${status}`); }
+}
+async function refusal(path: string, res: Response): Promise<ApiError> {
+  let detail = "";
+  try { const j = await res.json(); detail = typeof j?.error === "string" ? j.error : typeof j?.detail === "string" ? j.detail : ""; } catch { /* no body */ }
+  return new ApiError(path, res.status, detail);
+}
+
+async function getJson<T>(path: string, params?: Record<string, string | number>, signal?: AbortSignal): Promise<T> {
+  const url = new URL(`${BACKEND_URL}${path}`);
+  if (params) for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
+  const res = await fetch(url.toString(), { headers: await authHeaders(), signal });
+  engineSeenUp = true; // any reply at all: the engine was running
+  if (!res.ok) throw await refusal(path, res);
+  return res.json();
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await refusal(path, res);
+  return res.json();
+}
+
+export interface HealthResponse {
+  status: string;
+  app_data_dir: string;
+}
+export const checkBackendHealth = () => getJson<HealthResponse>("/health", undefined, AbortSignal.timeout(5000));
+
+// ---- search ----
+export type SearchMode = "auto" | "smart" | "exact" | "keyword";
+// Phase 18: which retrieval route answered the query and what it cost.
+export interface RouteStage { stage: string; ms?: number; skipped?: boolean; hits?: number; candidates?: number; relevant?: number; files?: number; to?: string; reason?: string }
+export interface RouteReport {
+  tier: string;
+  requested_tier: string;
+  escalated: boolean;
+  complexity: number;
+  reason: string;
+  features: Record<string, unknown>;
+  stages: RouteStage[];
+  total_ms: number;
+  corrected_query: string | null;
+  unrecognized?: string[]; // words the index and the English list don't know: nothing was searched (2026-10-05)
+  suggest_ask?: boolean; // Phase 19: a question the retrieval tiers could not answer confidently
+}
+export type Confidence = "strong" | "weak";
+
+export interface SearchResult {
+  file_id: string;
+  path: string | null;
+  filename: string;
+  // null when the file matched by name only (no content hit to score).
+  score: number | null;
+  keyword_score: number | null;
+  semantic_score: number | null;
+  reranker_score: number | null;
+  page: number | null;
+  chunk_id: string | null; // the matched passage; null for a name-only match
+  matched_chunk: string;
+  why: string[];
+  confidence: Confidence;
+  size: number;
+  modified_time: number;
+  // Phase 17: null when personalization is off or the profile is still cold.
+  personal: { boost: number; signals: Record<string, number>; reasons: string[] } | null;
+}
+export interface SearchResponse { results: SearchResult[]; route: RouteReport | null; hint?: string | null }
+/** `folder` (an absolute path) limits the search to that folder and below; an engine that refuses it throws an ApiError. */
+export const search = (q: string, mode: SearchMode = "auto", top_k = 20, signal?: AbortSignal, remember = true, folder?: string | null) =>
+  getJson<SearchResponse>("/search", { q, mode, top_k, ...(remember ? {} : { remember: "false" }), ...(folder ? { folder } : {}) }, signal);
+
+// The preview pane: the matched passage and its neighbours, straight from the index.
+export interface Passage { chunk_id: string; chunk_index: number | null; page: number | null; heading: string | null; text: string }
+export interface PassagesResponse { error?: "not_indexed"; path?: string; total: number; match: Passage | null; previous: Passage | null; next: Passage | null }
+export const getPassages = (file_id: string, chunk_id: string | null, signal?: AbortSignal) =>
+  getJson<PassagesResponse>("/passages", chunk_id ? { file_id, chunk_id } : { file_id }, signal);
+// Everything indexed for one file: OCR text for a photo or screenshot, the transcript for audio.
+export const getFileText = (file_id: string, signal?: AbortSignal) =>
+  getJson<{ error?: "not_indexed"; path?: string; text: string; truncated: boolean }>("/file-text", { file_id }, signal);
+
+// What /search would silently correct the query to — null when it runs as typed.
+export const suggest = (q: string) => getJson<{ suggestion: string | null }>("/suggest", { q });
+
+export interface VisualSearchResult {
+  file_id: string;
+  path: string | null;
+  filename: string;
+  score: number;
+  kind: string | null;
+  captured_at: string | null;
+  timestamp_offset_seconds: number | null;
+  // Videos only: up to 3 distinct best-matching moments, best first — the filmstrip.
+  moments: { t: number; score: number | null }[] | null;
+  confidence: Confidence;
+}
+export type VisualKind = "all" | "photo" | "video";
+export const searchVisual = (q: string, kind: VisualKind = "all", top_k = 24, signal?: AbortSignal) =>
+  getJson<{ results?: VisualSearchResult[]; error?: string; unrecognized?: string[]; corrected_query?: string | null }>(
+    "/search-visual",
+    kind === "all" ? { q, top_k } : { q, top_k, kind },
+    signal,
+  );
+export const suggestVisual = (q: string) => getJson<{ suggestion: string | null }>("/suggest-visual", { q });
+
+// <img> tags cannot send headers, so thumbnails are fetched with the token header and shown from a blob URL.
+export async function fetchThumbnail(path: string, size = 320, atSeconds: number | null = null, signal?: AbortSignal): Promise<string> {
+  const url = new URL(`${BACKEND_URL}/thumbnail`);
+  url.searchParams.set("path", path);
+  url.searchParams.set("size", String(size));
+  if (atSeconds != null) url.searchParams.set("t", String(atSeconds));
+  const res = await fetch(url.toString(), { headers: await authHeaders(), signal });
+  if (!res.ok) throw new Error(`thumbnail failed: ${res.status}`);
+  return URL.createObjectURL(await res.blob());
+}
+
+export function formatTimestamp(seconds: number): string {
+  const s = Math.floor(seconds);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+// ---- browsing (read-only: names, sizes and dates; the engine decides which folders may be listed) ----
+export type BrowseKind = "folder" | "image" | "audio" | "video" | "document" | "code" | "archive" | "other";
+export interface BrowseEntry { name: string; path: string; is_dir: boolean; size: number | null; modified: number; kind: BrowseKind; indexed: boolean; file_id: string | null }
+export interface BrowseDrive { letter: string; path: string; label: string; type: string; ready: boolean; total_bytes: number | null; free_bytes: number | null }
+export interface QuickItem { name: string; path: string; kind: "known" | "pinned"; icon: string }
+export interface RecentItem extends BrowseEntry { accessed: number; activity: string }
+export interface FolderListing { path: string; name: string; parent: string | null; counts: { total: number; folders: number; files: number }; offset: number; limit: number; has_more: boolean; entries: BrowseEntry[] }
+export const browseDrives = () => getJson<{ drives: BrowseDrive[] }>("/browse/drives");
+export const browseQuickAccess = () => getJson<{ items: QuickItem[] }>("/browse/quick-access");
+export const browseList = (path: string, offset = 0, limit = 1000, signal?: AbortSignal) => getJson<FolderListing>("/browse/list", { path, offset, limit }, signal);
+export const browseRecent = (limit = 50) => getJson<{ windows_recent: boolean; items: RecentItem[] }>("/browse/recent", { limit });
+
+// ---- folders / indexing ----
+export const indexFolder = (folder: string) => postJson<{ queued?: string; error?: string }>("/index-folder", { folder });
+export const forgetFolder = (folder: string) => postJson<{ removed?: number; error?: string }>("/forget-folder", { folder });
+export const getSampleFolder = () => getJson<{ path: string | null }>("/sample-folder");
+/** Why a file the user named is not in the results (indexed, could not be read, skipped, deleted, type not read, ...). */
+export const whyMissing = (name: string) => getJson<{ name: string; status: string; reason: string; path?: string }>(`/files/why-missing?name=${encodeURIComponent(name)}`);
+export const scanAll = () => postJson<{ folders?: number; files?: number; error?: string }>("/scan-all", {});
+export const reindexFolder = (folder: string) => postJson<{ queued?: string; error?: string }>("/reindex-folder", { folder });
+
+export interface IndexJob {
+  state: "idle" | "running" | "done" | "failed";
+  folder: string | null;
+  done: number;
+  total: number;
+  current_file: string | null;
+  failed: number;
+  started_at: number | null;
+  finished_at: number | null;
+  error: string | null;
+  queued: string[];
+  paused_reason?: string | null; // Phase 10: set while the job is held for battery / low-power
+  recent_failures?: { path: string; error: string; reason?: string; at: number }[]; // Phase 11; `reason` is a readable sentence
+  // Files a scan left alone on purpose (not failures): counts by reason, and the latest few by name.
+  skipped?: { too_large?: number; online_only?: number; path_too_long?: number };
+  recent_skips?: { path: string; reason: string }[];
+  recovered_at_start?: number; // Phase 11: files re-indexed after a crash mid-index
+  // Fresh-scan summary: what changed on disk since the app was last open.
+  scan_stats?: { new?: number; modified?: number; renamed?: number; unchanged?: number; deleted?: number };
+}
+export type ResourceMode = "balanced" | "performance" | "battery_saver";
+export interface PowerSnapshot {
+  has_battery: boolean;
+  on_battery: boolean;
+  percent: number | null;
+  low_power_mode: boolean;
+  cpu_percent: number;
+  app_cpu_percent: number;
+  paused: boolean;
+  paused_reason: string | null;
+  mode: ResourceMode;
+  pending_jobs: number;
+}
+export type AccessMode = "unset" | "all" | "limited" | "denied";
+export interface AccessPolicy { mode: AccessMode; allows_indexing: boolean; whole_computer_roots: string[]; excluded_paths: string[] }
+export const getAccess = () => getJson<AccessPolicy>("/access");
+export const setAccess = (mode: Exclude<AccessMode, "unset">, remove_index = false) =>
+  postJson<AccessPolicy & { previous: AccessMode; removed: number; error?: string }>("/access", { mode, remove_index });
+export const indexFile = (path: string) => postJson<{ queued?: string; error?: string }>("/index-file", { folder: path });
+
+export interface FolderStats {
+  path: string;
+  kind?: "folder" | "file";
+  exists: boolean;
+  indexing: boolean;
+  queued: boolean;
+  documents: number;
+  photos: number;
+  videos: number;
+  audio: number;
+}
+export interface WorkingContext {
+  session_id: string | null;
+  started_at: number | null;
+  events: number;
+  queries: string[];
+  files: string[];
+  file_types: string[];
+}
+export interface StatusResponse {
+  engine: string;
+  job: IndexJob;
+  folders: FolderStats[];
+  totals: { documents: number; photos: number; videos: number; audio: number; files: number };
+  index_size_bytes: number;
+  // Phase 16: the activity memory behind personalization.
+  activity: { enabled: boolean; events: number; session: WorkingContext };
+  // Phase 10: battery / low-power / CPU and whether indexing is paused for it.
+  power: PowerSnapshot;
+  // Phase 12: the file-access policy chosen on first run.
+  access: AccessPolicy;
+  models: {
+    text: { name: string; dimension: number; provider: string };
+    photos: { name: string; precision: string; dimension: number } | null;
+    speech: { name: string } | null;
+    reranker: { name: string } | null;
+    ocr?: { name: string; language: string } | null;
+  };
+  // Which optional parts loaded; missing on an older backend (treat as available).
+  features?: { photos_videos: boolean; voice: boolean; ocr: boolean };
+  // Problems found while the engine started, as sentences for the user.
+  startup_problems?: string[];
+}
+export const getStatus = () => getJson<StatusResponse>("/status", undefined, AbortSignal.timeout(5000));
+
+export interface AgentEntry {
+  id: string;
+  name: string;
+  status: string; // "running" | "idle" | "degraded" | "failed" | "not configured"
+  issue: string | null;
+  recovery: string | null;
+  score: number | null;
+  breakdown: Record<string, number>;
+  missing: string[];
+  n: number | null;
+  note: string | null;
+}
+export interface AgentManagerStatus {
+  agents: AgentEntry[];
+  issues: { agent: string; name: string; issue: string; recovery: string | null }[];
+  overall_score: number | null;
+  startup_problems: string[];
+}
+export const getAgentManager = () => getJson<AgentManagerStatus>("/agent-manager", undefined, AbortSignal.timeout(5000));
+
+// Whether voice works does not change while the engine runs: asked once, on first use.
+let voiceReady: Promise<boolean> | null = null;
+export function voiceAvailable(): Promise<boolean> {
+  voiceReady ??= getStatus().then((s) => s.features?.voice !== false, () => { voiceReady = null; return true; });
+  return voiceReady;
+}
+export const VOICE_MISSING = "Voice search needs its speech model, which did not load. Extract IntelliFile-windows.zip again, completely. Typing works as before.";
+
+/** The sentence a refused request carries (FastAPI's {"detail": ...}, or plain text). */
+async function errorSentence(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const j = JSON.parse(text);
+    const msg = j?.detail ?? j?.error ?? j?.message;
+    if (typeof msg === "string") return msg;
+  } catch { /* plain text */ }
+  return text || `Request failed: ${res.status}`;
+}
+
+// ---- activity memory (Phase 16) ----
+export type EventKind = "result_clicked" | "file_opened" | "file_revealed" | "recommendation_clicked";
+export interface UsageEvent {
+  id: number;
+  ts: number;
+  kind: EventKind | "query";
+  session_id: string;
+  file_id: string | null;
+  path: string | null;
+  file_type: string | null;
+  query: string | null;
+  meta: Record<string, unknown> | null;
+}
+/** Fire-and-forget: what the user did with a result. Searches are recorded by the backend itself. */
+export function recordEvent(kind: EventKind, fields: { file_id?: string | null; path?: string | null; query?: string | null }): void {
+  postJson("/events", { kind, ...fields }).catch(() => { /* bookkeeping must never surface as an error */ });
+}
+export const listEvents = (limit = 50) => getJson<{ events: UsageEvent[]; total: number }>("/events", { limit });
+export async function clearEvents(): Promise<{ cleared: number }> {
+  const res = await fetch(`${BACKEND_URL}/events`, { method: "DELETE", headers: await authHeaders() });
+  if (!res.ok) throw new Error(`/events failed: ${res.status}`);
+  return res.json();
+}
+export interface AppSettings { index_video_speech: boolean; remember_activity: boolean; personalize: boolean; import_windows_recent: boolean; pause_on_battery: boolean; pause_on_low_power: boolean; resource_mode: ResourceMode }
+export interface WindowsRecentStatus { available: boolean; enabled: boolean; state: "off" | "running" | "done" | "failed"; last: { shortcuts: number; indexed_files: number; events_added: number; at: number } | null }
+export const getWindowsRecent = () => getJson<WindowsRecentStatus>("/windows-recent");
+
+// ---- profile & recommendations (Phase 17) ----
+export interface ProfileTopic { id: number; label: string; terms: string[]; files: { file_id: string; filename: string }[]; file_count: number; weight: number }
+export interface ProfileResponse {
+  built_at: number;
+  events: number;
+  sessions: number;
+  cold_start: boolean;
+  cold_start_threshold: number;
+  top_files: { file_id: string; path: string; filename: string; score: number; last_touched: number | null; usual_slot: string | null }[];
+  type_shares: Record<string, number>;
+  topics: ProfileTopic[];
+  heatmap: number[][]; // [weekday][slot]
+  slot_hours: number;
+  now_slot: { weekday: number; slot: number; label: string };
+  sample_history?: boolean; // made-up history of the sample folder is loaded
+}
+export const getProfile = () => getJson<ProfileResponse>("/profile");
+/** Made-up four weeks of use of the sample folder. `error` is the backend's sentence (e.g. the folder is not indexed yet). */
+export async function loadSampleHistory(): Promise<{ events?: number; error?: string }> {
+  const res = await fetch(`${BACKEND_URL}/profile/sample-history`, { method: "POST", headers: await authHeaders() });
+  if (res.status === 409) return { error: await errorSentence(res) };
+  if (!res.ok) throw new Error(`/profile/sample-history failed: ${res.status}`);
+  return res.json();
+}
+export async function removeSampleHistory(): Promise<{ removed: number }> {
+  const res = await fetch(`${BACKEND_URL}/profile/sample-history`, { method: "DELETE", headers: await authHeaders() });
+  if (!res.ok) throw new Error(`/profile/sample-history failed: ${res.status}`);
+  return res.json();
+}
+export interface Recommendation { file_id: string; path: string; filename: string; reason: string }
+export interface RecommendationsResponse {
+  enabled: boolean;
+  cold_start: boolean | null;
+  now: string | null;
+  likely_next: Recommendation[];
+  usual_now: Recommendation[];
+  recent: Recommendation[];
+}
+export const getRecommendations = () => getJson<RecommendationsResponse>("/recommendations");
+// Phase 20: live router statistics from the remembered queries.
+export interface RouterStats { total: number; escalated: number; routes: { route: string; queries: number; share: number; mean_ms: number; with_results: number }[] }
+export const getRouterStats = () => getJson<RouterStats>("/router-stats");
+export interface RouterModel { available: boolean; active: boolean; trained_on: number; trained_at: number | null; accuracy: { holdout: number; rules: number; learned: number } | null; confidence: number; queries_available: number; needed: number }
+export const getRouterModel = () => getJson<RouterModel>("/router/model");
+export const getSettings = () => getJson<AppSettings>("/settings");
+export const updateSettings = (changes: Partial<AppSettings>) => postJson<AppSettings>("/settings", changes);
+
+// ---- ask mode (Phase 19: the local LLM agent) ----
+export interface AskSource { number: number; file_id: string; path: string; filename: string; page: number | null; snippet: string; confidence: string; why: string[] }
+export type AskEvent =
+  | { type: "context"; context: { session: WorkingContext | null; topics: string[]; top_files: string[] } }
+  | { type: "rewritten"; text: string }
+  | { type: "thought"; text: string; system?: boolean; ms?: number }
+  | { type: "tool_call"; tool: string; args: Record<string, unknown>; call: number }
+  | { type: "tool_result"; tool: string; sources: AskSource[]; route?: RouteReport; call: number }
+  | { type: "quick_answer"; text: string; source: AskSource }
+  | { type: "answer_start" }
+  | { type: "token"; text: string }
+  | { type: "answer"; text: string; citations: AskSource[]; grounded: boolean; citations_inferred?: boolean; warnings?: string[]; from_index?: boolean }
+  | { type: "done"; seconds: number; tool_calls: number; strategies: { query: string; mode: string; filters: string; route: string; results: number }[]; sources: AskSource[] }
+  | { type: "error"; message: string };
+
+export const ASK_STOPPED = "The search engine stopped while answering. Details are in backend.log in %LOCALAPPDATA%\\IntelliFile\\logs.";
+
+/**
+ * Streams the agent's trace for a question; resolves when the stream ends.
+ * Always ends with a "done" or "error" event unless the caller aborted:
+ * a stream cut short (the engine crashed) reports ASK_STOPPED instead of
+ * leaving the answer spinning forever.
+ *
+ * `prev`: the previous question and its answer text in this session, so a
+ * follow-up ("show me those", "what about the other one") can be resolved.
+ * Each question is otherwise answered on its own, with no memory of the one
+ * before it.
+ */
+export async function askStream(q: string, onEvent: (e: AskEvent) => void, signal?: AbortSignal, prev?: { q: string; a: string }): Promise<void> {
+  const url = new URL(`${BACKEND_URL}/ask`);
+  url.searchParams.set("q", q);
+  if (prev?.q && prev.a) { url.searchParams.set("prev_q", prev.q); url.searchParams.set("prev_a", prev.a); }
+  let finished = false;
+  // Once the question is cancelled nothing more reaches the page, not even frames already read.
+  const emit = (e: AskEvent) => {
+    if (signal?.aborted) return;
+    if (e.type === "done" || e.type === "error") finished = true;
+    onEvent(e);
+  };
+  const frame = (f: string) => {
+    const line = f.split("\n").find((l) => l.startsWith("data: "));
+    if (line) emit(JSON.parse(line.slice(6)) as AskEvent);
+  };
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), { signal, headers: await authHeaders() });
+  } catch (e) {
+    if (!signal?.aborted) emit({ type: "error", message: describeError(e) });
+    return;
+  }
+  if (!res.ok || !res.body) { emit({ type: "error", message: describeError(new Error(`/ask failed: ${res.status}`)) }); return; }
+  try {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) >= 0) {
+        frame(buffer.slice(0, idx));
+        buffer = buffer.slice(idx + 2);
+      }
+    }
+    if (buffer.trim()) frame(buffer); // a last frame without its blank line
+  } catch {
+    if (signal?.aborted) return;
+  }
+  if (!finished && !signal?.aborted) emit({ type: "error", message: ASK_STOPPED });
+}
+
+export interface AskStatus {
+  available: boolean;
+  model: string | null;
+  loaded: boolean;
+  loading?: boolean;
+  error?: string | null;
+  tokens_per_second: number | null;
+  prompt_chars_per_second?: number | null;
+}
+/** preload=true starts loading the language model in the background; only the Ask page asks for that. */
+export const askStatus = (preload = false) => getJson<AskStatus>("/ask/status", preload ? { preload: 1 } : undefined);
+
+// ---- desktop shell (Tauri commands; null in a plain browser tab) ----
+async function shellCommand<T>(cmd: string): Promise<T | null> {
+  if (!("__TAURI_INTERNALS__" in window)) return null;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<T>(cmd);
+  } catch {
+    return null;
+  }
+}
+/** Why the search engine is not running (port taken, start failed, crashed), or null. */
+export const backendProblem = () => shellCommand<string | null>("backend_problem");
+/** False when Ctrl+Space could not be registered; null outside the desktop shell. */
+export const shortcutOk = () => shellCommand<boolean>("shortcut_ok");
+
+// ---- voice ----
+// `heard` is set only when the backend snapped a misheard file name (2026-09-20).
+// `suggestion` is a sound-alike file name offered when the raw words already find something.
+export async function transcribeAudio(wav: Blob): Promise<{ text?: string; heard?: string | null; suggestion?: string | null; error?: string }> {
+  const form = new FormData();
+  form.append("audio", wav, "recording.wav");
+  const res = await fetch(`${BACKEND_URL}/transcribe`, { method: "POST", body: form, headers: await authHeaders() });
+  if (!res.ok) throw new Error(`Transcription request failed: ${res.status}`);
+  return res.json();
+}
+
+// ---- formatting helpers shared by pages ----
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+export function formatAgo(epochSeconds: number): string {
+  const s = Math.max(0, Date.now() / 1000 - epochSeconds);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 86400 * 30) return `${Math.floor(s / 86400)} d ago`;
+  return new Date(epochSeconds * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+export type FileGroup = "text" | "doc" | "audio" | "video" | "image" | "sheet" | "slides" | "code";
+
+// Mirrors backend/app/files/discovery.py's extension groups (2026-09-20).
+const CODE_EXTS = ["PY", "JS", "TS", "TSX", "JSX", "JAVA", "C", "CPP", "H", "HPP", "CS", "GO", "RS", "RB", "PHP", "SWIFT", "KT",
+  "CSS", "JSON", "XML", "YAML", "YML", "TOML", "INI", "CFG", "SH", "BAT", "PS1", "SQL", "HTML", "HTM"];
+
+export function fileKind(filename: string): { badge: string; group: FileGroup } {
+  const ext = (filename.split(".").pop() || "").toUpperCase();
+  if (["M4A", "MP3", "WAV", "FLAC", "OGG", "AIFF", "AIF", "WMA", "AAC", "OPUS"].includes(ext)) return { badge: ext, group: "audio" };
+  if (["JPG", "JPEG", "PNG", "GIF", "BMP", "WEBP", "AVIF", "HEIC", "HEIF", "TIF", "TIFF"].includes(ext)) return { badge: ext, group: "image" };
+  if (["MP4", "MOV", "M4V", "MKV", "WEBM", "AVI", "3GP", "WMV", "MTS", "M2TS", "MPG", "MPEG"].includes(ext)) return { badge: ext, group: "video" };
+  if (["PDF", "DOCX", "DOC", "RTF", "ODT", "EPUB", "EML", "MSG"].includes(ext)) return { badge: ext, group: "doc" };
+  if (["CSV", "TSV", "XLSX", "XLSM", "XLS", "ODS"].includes(ext)) return { badge: ext, group: "sheet" };
+  if (["PPTX", "PPT", "ODP"].includes(ext)) return { badge: ext, group: "slides" };
+  if (CODE_EXTS.includes(ext)) return { badge: ext, group: "code" };
+  return { badge: ext || "FILE", group: "text" };
+}
+
+export function shortenPath(path: string): string {
+  return path.replace(/^\/Users\/[^/]+/, "~").replace(/^C:\\Users\\[^\\]+/, "~");
+}
+
+/** The folder a file is in, shortened: shown next to a file name that is already visible. */
+export function shortenFolder(path: string): string {
+  return shortenPath(path.replace(/[\\/][^\\/]*$/, "") || path);
+}

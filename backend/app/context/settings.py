@@ -1,0 +1,78 @@
+"""User settings that the backend honours, kept in config/settings.json.
+
+Phase 16 adds the first one: `remember_activity`. Phase 10's power toggles
+and Phase 17's `personalize` join it here; the Settings page reads and
+writes the whole document through GET/POST /settings.
+"""
+
+import json
+import os
+import threading
+from pathlib import Path
+
+SETTINGS_FILE = "settings.json"
+
+DEFAULTS: dict = {
+    # Phase 16 — record searches/opens/reveals locally so Phase 17 can
+    # personalize. Off = nothing is written and the store stays as it is.
+    "remember_activity": True,
+    # Phase 17 — let the profile nudge search ranking and drive
+    # recommendations. Off = pure retrieval order, no recommendations.
+    "personalize": True,
+    # Next-round improvement 1 — seed the activity memory from Windows'
+    # Recent items so personalization works from day one. Off until the
+    # user says yes: it reads their file history, even if only locally.
+    "import_windows_recent": False,
+    # Phase 10 — power-aware indexing. Pausing on battery was the default
+    # until 2026-10-05: a laptop started unplugged then indexed NOTHING (0
+    # files, every search and Ask empty) — exactly what a grader on battery
+    # would see. Battery saver / power-saving mode still pauses by default.
+    "pause_on_battery": False,
+    "pause_on_low_power": True,
+    "resource_mode": "balanced",  # balanced | performance | battery_saver
+    # "Search what is said in videos" (2026-10-12): transcribe the first 10 minutes of a
+    # video's soundtrack, after everything else. Off until the user asks: it costs
+    # Whisper time per video.
+    "index_video_speech": False,
+}
+
+
+class Settings:
+    def __init__(self, config_dir: Path):
+        self._path = config_dir / SETTINGS_FILE
+        self._lock = threading.Lock()
+        self._values = dict(DEFAULTS)
+        self._load()
+
+    def _load(self) -> None:
+        try:
+            stored = json.loads(self._path.read_text())
+        except (OSError, ValueError):
+            return
+        if isinstance(stored, dict):
+            for key in DEFAULTS:
+                if key in stored and isinstance(stored[key], type(DEFAULTS[key])):
+                    self._values[key] = stored[key]
+
+    def _save(self) -> None:
+        tmp = self._path.with_name(self._path.name + ".tmp")
+        tmp.write_text(json.dumps(self._values, indent=2))
+        os.replace(tmp, self._path)  # a crash mid-write cannot leave half a settings file
+
+    def get(self, key: str):
+        with self._lock:
+            return self._values[key]
+
+    def all(self) -> dict:
+        with self._lock:
+            return dict(self._values)
+
+    def update(self, changes: dict) -> dict:
+        """Apply the known keys of `changes` (unknown keys and wrong types
+        are ignored, not errors) and persist. Returns the full document."""
+        with self._lock:
+            for key, value in changes.items():
+                if key in DEFAULTS and isinstance(value, type(DEFAULTS[key])):
+                    self._values[key] = value
+            self._save()
+            return dict(self._values)

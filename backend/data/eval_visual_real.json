@@ -1,0 +1,684 @@
+{
+  "photos": [
+    {
+      "query": "sunset over a lake",
+      "correct": [
+        "screen-img102.jpg",
+        "themec-img30.jpg"
+      ],
+      "results": [
+        [
+          "screen-img102.jpg",
+          "strong",
+          1.4182
+        ],
+        [
+          "themec-img30.jpg",
+          "strong",
+          1.4346
+        ],
+        [
+          "themec-img28.jpg",
+          "strong",
+          1.4526
+        ],
+        [
+          "themec-img31.jpg",
+          "strong",
+          1.4585
+        ],
+        [
+          "themec-img29.jpg",
+          "strong",
+          1.5035
+        ]
+      ],
+      "top1": true,
+      "top3": true
+    },
+    {
+      "query": "a calm lake with mountains and a forest",
+      "correct": [
+        "screen-img102.jpg",
+        "themec-img28.jpg",
+        "themec-img29.jpg",
+        "themec-img30.jpg"
+      ],
+      "results": [
+        [
+          "themec-img29.jpg",
+          "strong",
+          1.4296
+        ],
+        [
+          "themec-img30.jpg",
+          "strong",
+          1.4659
+        ],
+        [
+          "themec-img28.jpg",
+          "strong",
+          1.4686
+        ],
+        [
+          "screen-img102.jpg",
+          "strong",
+          1.4803
+        ],
+        [
+          "themec-img31.jpg",
+          "strong",
+          1.489
+        ]
+      ],
+      "top1": true,
+      "top3": true
+    },
+    {
+      "query": "snowy mountains with pine trees next to a lake",
+      "correct": [
+        "themec-img28.jpg",
+        "themec-img29.jpg"
+      ],
+      "results": [
+        [
+          "themec-img29.jpg",
+          "strong",
+          1.4761
+        ],
+        [
+          "screen-img102.jpg",
+          "strong",
+          1.4946
+        ],
+        [
+          "themec-img30.jpg",
+          "strong",
+          1.5069
+        ],
+        [
+          "themec-img28.jpg",
+          "weak",
+          1.5303
+        ]
+      ],
+      "top1": true,
+      "top3": true
+    },
+    {
+      "query": "a pale pink desert landscape with a lake",
+      "correct": [
+        "themec-img31.jpg"
+      ],
+      "results": [
+        [
+          "themec-img31.jpg",
+          "strong",
+          1.3959
+        ],
+        [
+          "themec-img30.jpg",
+          "strong",
+          1.3963
+        ],
+        [
+          "themec-img28.jpg",
+          "strong",
+          1.4119
+        ],
+        [
+          "themec-img29.jpg",
+          "strong",
+          1.4151
+        ],
+        [
+          "screen-img102.jpg",
+          "strong",
+          1.4443
+        ]
+      ],
+      "top1": true,
+      "top3": true
+    },
+    {
+      "query": "cherry blossom branch",
+      "correct": [
+        "spotlight-img50.jpg"
+      ],
+      "results": [
+        [
+          "themed-img34.jpg",
+          "weak",
+          1.5183
+        ],
+        [
+          "themed-img35.jpg",
+          "weak",
+          1.5401
+        ]
+      ],
+      "top1": false,
+      "top3": false
+    },
+    {
+      "query": "a beach, a blossom and a lake side by side",
+      "correct": [
+        "spotlight-img50.jpg"
+      ],
+      "results": [
+        [
+          "themec-img28.jpg",
+          "strong",
+          1.455
+        ],
+        [
+          "themec-img30.jpg",
+          "strong",
+          1.467
+        ],
+        [
+          "themec-img29.jpg",
+          "strong",
+          1.4904
+        ],
+        [
+          "themec-img31.jpg",
+          "strong",
+          1.5237
+        ],
+        [
+          "screen-img102.jpg",
+          "strong",
+          1.524
+        ]
+      ],
+      "top1": false,
+      "top3": false
+    },
+    {
+      "query": "a plain solid blue background",
+      "correct": [
+        "screen-img105.jpg"
+      ],
+      "results": [
+        [
+          "screen-img100.jpg",
+          "strong",
+          1.3496
+        ],
+        [
+          "screen-img104.jpg",
+          "strong",
+          1.3852
+        ],
+        [
+          "screen-img101.jpg",
+          "strong",
+          1.4007
+        ],
+        [
+          "themea-img21.jpg",
+          "strong",
+          1.4007
+        ],
+        [
+          "spotlight-img14.jpg",
+          "strong",
+          1.4038
+        ]
+      ],
+      "top1": false,
+      "top3": false
+    },
+    {
+      "query": "a blue flower shape on a light background",
+      "correct": [
+        "spotlight-img14.jpg",
+        "windows-img0.jpg"
+      ],
+      "results": [
+        [
+          "screen-img100.jpg",
+          "strong",
+          1.3513
+        ],
+        [
+          "windows-img19.jpg",
+          "strong",
+          1.3937
+        ],
+        [
+          "spotlight-img14.jpg",
+          "strong",
+          1.4088
+        ],
+        [
+          "windows-img0.jpg",
+          "strong",
+          1.4088
+        ],
+        [
+          "screen-img101.jpg",
+          "strong",
+          1.4187
+        ]
+      ],
+      "top1": false,
+      "top3": true
+    },
+    {
+      "query": "a blue flower shape on a dark background",
+      "correct": [
+        "windows-img19.jpg"
+      ],
+      "results": [
+        [
+          "screen-img100.jpg",
+          "strong",
+          1.3411
+        ],
+        [
+          "windows-img19.jpg",
+          "strong",
+          1.3786
+        ],
+        [
+          "spotlight-img14.jpg",
+          "strong",
+          1.3999
+        ],
+        [
+          "windows-img0.jpg",
+          "strong",
+          1.3999
+        ],
+        [
+          "screen-img104.jpg",
+          "strong",
+          1.4075
+        ]
+      ],
+      "top1": false,
+      "top3": true
+    },
+    {
+      "query": "a soft pink flower",
+      "correct": [
+        "themed-img34.jpg"
+      ],
+      "results": [
+        [
+          "themed-img34.jpg",
+          "strong",
+          1.439
+        ]
+      ],
+      "top1": true,
+      "top3": true
+    },
+    {
+      "query": "a sage green folded shape",
+      "correct": [
+        "themed-img33.jpg"
+      ],
+      "results": [
+        [
+          "themed-img33.jpg",
+          "strong",
+          1.4121
+        ],
+        [
+          "themed-img35.jpg",
+          "strong",
+          1.4488
+        ],
+        [
+          "themed-img32.jpg",
+          "strong",
+          1.4581
+        ],
+        [
+          "spotlight-img14.jpg",
+          "strong",
+          1.506
+        ],
+        [
+          "windows-img0.jpg",
+          "strong",
+          1.506
+        ]
+      ],
+      "top1": true,
+      "top3": true
+    },
+    {
+      "query": "a glowing purple ring on black",
+      "correct": [
+        "screen-img101.jpg",
+        "themea-img20.jpg",
+        "themea-img21.jpg"
+      ],
+      "results": [
+        [
+          "themea-img23.jpg",
+          "strong",
+          1.3956
+        ],
+        [
+          "screen-img101.jpg",
+          "strong",
+          1.4004
+        ],
+        [
+          "themea-img21.jpg",
+          "strong",
+          1.4004
+        ],
+        [
+          "themea-img20.jpg",
+          "strong",
+          1.4137
+        ],
+        [
+          "themea-img22.jpg",
+          "strong",
+          1.4295
+        ]
+      ],
+      "top1": false,
+      "top3": true
+    },
+    {
+      "query": "a glowing green ring on black",
+      "correct": [
+        "themea-img23.jpg"
+      ],
+      "results": [
+        [
+          "themea-img23.jpg",
+          "strong",
+          1.4409
+        ],
+        [
+          "screen-img101.jpg",
+          "strong",
+          1.4798
+        ],
+        [
+          "themea-img21.jpg",
+          "strong",
+          1.4798
+        ],
+        [
+          "themea-img22.jpg",
+          "strong",
+          1.5207
+        ],
+        [
+          "themea-img20.jpg",
+          "weak",
+          1.5252
+        ]
+      ],
+      "top1": true,
+      "top3": true
+    },
+    {
+      "query": "a red and orange glowing arc",
+      "correct": [
+        "themea-img20.jpg",
+        "themea-img22.jpg"
+      ],
+      "results": [
+        [
+          "themea-img22.jpg",
+          "strong",
+          1.3881
+        ],
+        [
+          "themea-img20.jpg",
+          "strong",
+          1.412
+        ],
+        [
+          "themeb-img25.jpg",
+          "strong",
+          1.4794
+        ],
+        [
+          "themeb-img24.jpg",
+          "strong",
+          1.4921
+        ],
+        [
+          "screen-img101.jpg",
+          "strong",
+          1.5039
+        ]
+      ],
+      "top1": true,
+      "top3": true
+    },
+    {
+      "query": "colourful ribbons on a black background",
+      "correct": [
+        "screen-img103.jpg",
+        "themeb-img24.jpg",
+        "themeb-img25.jpg",
+        "themeb-img26.jpg",
+        "themeb-img27.jpg"
+      ],
+      "results": [
+        [
+          "themeb-img25.jpg",
+          "strong",
+          1.3975
+        ],
+        [
+          "themeb-img24.jpg",
+          "strong",
+          1.3998
+        ],
+        [
+          "screen-img103.jpg",
+          "strong",
+          1.4329
+        ],
+        [
+          "themeb-img26.jpg",
+          "strong",
+          1.4436
+        ],
+        [
+          "spotlight-img14.jpg",
+          "strong",
+          1.4615
+        ]
+      ],
+      "top1": true,
+      "top3": true
+    },
+    {
+      "query": "orange glass bubbles",
+      "correct": [
+        "themeb-img27.jpg"
+      ],
+      "results": [
+        [
+          "themea-img22.jpg",
+          "strong",
+          1.415
+        ],
+        [
+          "themea-img20.jpg",
+          "strong",
+          1.4197
+        ],
+        [
+          "themeb-img27.jpg",
+          "strong",
+          1.465
+        ],
+        [
+          "screen-img101.jpg",
+          "strong",
+          1.4669
+        ],
+        [
+          "themea-img21.jpg",
+          "strong",
+          1.4669
+        ]
+      ],
+      "top1": false,
+      "top3": true
+    },
+    {
+      "query": "abstract blue waves",
+      "correct": [
+        "screen-img100.jpg"
+      ],
+      "results": [
+        [
+          "screen-img104.jpg",
+          "strong",
+          1.3735
+        ],
+        [
+          "windows-img19.jpg",
+          "strong",
+          1.4054
+        ],
+        [
+          "spotlight-img14.jpg",
+          "strong",
+          1.4137
+        ],
+        [
+          "windows-img0.jpg",
+          "strong",
+          1.4137
+        ],
+        [
+          "screen-img100.jpg",
+          "strong",
+          1.4141
+        ]
+      ],
+      "top1": false,
+      "top3": false
+    },
+    {
+      "query": "soft grey and white waves",
+      "correct": [
+        "screen-img104.jpg"
+      ],
+      "results": [
+        [
+          "themed-img35.jpg",
+          "strong",
+          1.451
+        ],
+        [
+          "screen-img104.jpg",
+          "strong",
+          1.4936
+        ],
+        [
+          "themed-img33.jpg",
+          "strong",
+          1.5054
+        ],
+        [
+          "themed-img32.jpg",
+          "strong",
+          1.5253
+        ],
+        [
+          "themec-img30.jpg",
+          "weak",
+          1.5337
+        ]
+      ],
+      "top1": false,
+      "top3": true
+    }
+  ],
+  "videos": [
+    {
+      "query": "snowy mountains with pine trees next to a lake",
+      "expected": [
+        "nature trip.mp4",
+        0
+      ],
+      "got": [
+        "nature trip.mp4",
+        11.5
+      ]
+    },
+    {
+      "query": "cherry blossom branch",
+      "expected": [
+        "nature trip.mp4",
+        1
+      ],
+      "got": [
+        "nature trip.mp4",
+        5.5
+      ]
+    },
+    {
+      "query": "sunset over a lake",
+      "expected": [
+        "nature trip.mp4",
+        2
+      ],
+      "got": [
+        "nature trip.mp4",
+        8.0
+      ]
+    },
+    {
+      "query": "a blue flower shape on a dark background",
+      "expected": [
+        "wallpaper reel.mp4",
+        0
+      ],
+      "got": [
+        "wallpaper reel.mp4",
+        0.0
+      ]
+    },
+    {
+      "query": "orange glass bubbles",
+      "expected": [
+        "wallpaper reel.mp4",
+        1
+      ],
+      "got": [
+        "wallpaper reel.mp4",
+        7.0
+      ]
+    },
+    {
+      "query": "a soft pink flower",
+      "expected": [
+        "wallpaper reel.mp4",
+        2
+      ],
+      "got": [
+        "wallpaper reel.mp4",
+        8.0
+      ]
+    }
+  ],
+  "summary": {
+    "photo_top1": 9,
+    "photo_top3": 14,
+    "photo_strong": 9,
+    "photo_n": 18,
+    "video_right": 6,
+    "video_moment": 5,
+    "video_n": 6
+  }
+}

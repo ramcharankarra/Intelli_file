@@ -1,0 +1,77 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { transcribeAudio, VOICE_MISSING, voiceAvailable } from "../backend";
+import { Recorder } from "../recorder";
+
+// idle → warming (mic pipeline starting, ~0.7 s, we don't invite speech yet)
+//      → recording (live level bars) → transcribing → idle, text delivered.
+export type VoiceState = "idle" | "warming" | "recording" | "transcribing";
+
+export function useVoice(onText: (text: string, heard?: string | null, suggestion?: string | null) => void, onError: (message: string) => void) {
+  const [state, setState] = useState<VoiceState>("idle");
+  const [level, setLevel] = useState(0);
+  const recorderRef = useRef<Recorder | null>(null);
+  const mounted = useRef(true);
+  const starting = useRef(false);  // a second click during the availability check or warm-up must not start a second recorder
+
+  // Leaving the page (or the overlay being hidden) must turn the microphone off.
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      recorderRef.current?.stop();
+      recorderRef.current = null;
+    };
+  }, []);
+
+  // Sample the recorder's RMS ~20×/s while recording, for the bars.
+  useEffect(() => {
+    if (state !== "recording") return;
+    const id = window.setInterval(() => setLevel(recorderRef.current?.level ?? 0), 50);
+    return () => window.clearInterval(id);
+  }, [state]);
+
+  const toggle = useCallback(async () => {
+    if (state === "idle") {
+      if (starting.current) return;
+      starting.current = true;
+      try {
+      if (!(await voiceAvailable())) { if (mounted.current) onError(VOICE_MISSING); return; }
+      // Unmounted (overlay closed, page changed) while the availability check was
+      // in flight: starting the mic now would have no UI to show it was ever on.
+      if (!mounted.current) return;
+      setState("warming");
+      try {
+        const recorder = new Recorder();
+        await recorder.start();
+        // Unmounted during the warm-up: release the microphone at once.
+        if (!mounted.current) { recorder.stop(); return; }
+        recorderRef.current = recorder;
+        setState("recording");
+      } catch (e) {
+        if (mounted.current) {
+          setState("idle");
+          onError(e instanceof Error ? `Couldn't access the microphone: ${e.message}` : "Couldn't access the microphone.");
+        }
+      }
+      } finally { starting.current = false; }
+      return;
+    }
+    if (state === "recording" && recorderRef.current) {
+      const wav = recorderRef.current.stop();
+      recorderRef.current = null;
+      setState("transcribing");
+      try {
+        const res = await transcribeAudio(wav);
+        if (res.error) onError(res.error);
+        else if (res.text) onText(res.text, res.heard ?? null, res.suggestion ?? null);
+        else onError("No words were heard. Try again a little closer to the microphone.");
+      } catch (e) {
+        onError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setState("idle");
+      }
+    }
+  }, [state, onText, onError]);
+
+  return { state, level, toggle };
+}
